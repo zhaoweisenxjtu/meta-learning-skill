@@ -1,0 +1,13 @@
+# Meta-Learning Engine Configuration
+# Copy this to ~/.meta-learning/config.yaml and fill in your API keys.
+# All keys are optional — the engine works without them.
+
+api:
+  # Tavily API Key (https://tavily.com) — external search
+  tavily_key: ""
+
+  # Bing Web Search API Key (https://portal.azure.com) — Chinese search
+  bing_key: ""
+
+  # Jina AI Reader API Key (https://jina.ai/reader) — URL content fetching
+  jina_key: ""

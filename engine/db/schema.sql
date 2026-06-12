@@ -1,6 +1,7 @@
 -- Meta-Learning Engine Schema
 -- SQLite 3.x
 -- 7 张表：users, tracks, knowledge_nodes, review_history, assessment_log, learning_journal, node_dependencies
+-- v3 升级：增加知识质量评估字段（NUSAP Pedigree Matrix + 知识图谱质量维度）
 
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -37,6 +38,11 @@ CREATE INDEX IF NOT EXISTS idx_tracks_user_priority ON tracks(user_id, priority)
 
 -- ============================================================
 -- 3. Knowledge Nodes (知识节点)
+--    知识图谱质量评估字段：
+--    - 模式层：node_type（节点类型分类）、relation_type（关系类型规范化）
+--    - 数据层：quality_score（综合质量分）、source_reliability（来源可信度）
+--    - NUSAP Pedigree：theory_level（理论支撑）、data_level（数据来源）、method_level（方法验证）
+--    - 时效性：freshness_date（知识时效截止日期）
 -- ============================================================
 CREATE TABLE IF NOT EXISTS knowledge_nodes (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,11 +57,45 @@ CREATE TABLE IF NOT EXISTS knowledge_nodes (
     interval      INTEGER NOT NULL DEFAULT 0 CHECK (interval >= 0),
     repetitions   INTEGER NOT NULL DEFAULT 0 CHECK (repetitions >= 0),
     next_review   TEXT,
-    created_at    TEXT    NOT NULL DEFAULT (date('now')),
-    updated_at    TEXT    NOT NULL DEFAULT (date('now'))
+    -- 知识内容
+    content         TEXT    NOT NULL DEFAULT '',
+    content_format  TEXT    NOT NULL DEFAULT 'markdown',
+    source_url      TEXT    NOT NULL DEFAULT '',
+    source_title    TEXT    NOT NULL DEFAULT '',
+    tags            TEXT    NOT NULL DEFAULT '[]',
+    cached_at       TEXT,
+    -- ========== 知识质量评估字段 (v3) ==========
+    -- 节点类型（模式层分类）
+    node_type       TEXT    NOT NULL DEFAULT 'concept' CHECK (node_type IN (
+                        'concept',      -- 概念/定义
+                        'fact',         -- 事实性知识
+                        'principle',    -- 原理/定律
+                        'procedure',    -- 流程/方法
+                        'framework',    -- 框架/模型
+                        'case',         -- 案例/实例
+                        'data_point',   -- 数据点/统计
+                        'reference'     -- 引用/文献
+                    )),
+    -- 综合质量评分（0-100，由引擎自动计算）
+    quality_score   INTEGER DEFAULT 0 CHECK (quality_score BETWEEN 0 AND 100),
+    -- NUSAP Pedigree Matrix 三维度评分（0-4）
+    theory_level    INTEGER DEFAULT 0 CHECK (theory_level BETWEEN 0 AND 4),  -- 理论支撑等级
+    data_level      INTEGER DEFAULT 0 CHECK (data_level BETWEEN 0 AND 4),    -- 数据来源等级
+    method_level    INTEGER DEFAULT 0 CHECK (method_level BETWEEN 0 AND 4),  -- 方法验证等级
+    -- 来源可信度（0-4，数据层质量）
+    source_reliability INTEGER DEFAULT 0 CHECK (source_reliability BETWEEN 0 AND 4),
+    -- 时效性
+    freshness_date  TEXT,   -- 知识时效截止日期（超过此日期需重新验证）
+    -- 完整性标记
+    completeness    INTEGER DEFAULT 0 CHECK (completeness BETWEEN 0 AND 4),  -- 完整性评分
+    consistency     INTEGER DEFAULT 0 CHECK (consistency BETWEEN 0 AND 4),   -- 一致性评分
+    created_at      TEXT    NOT NULL DEFAULT (date('now')),
+    updated_at      TEXT    NOT NULL DEFAULT (date('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_nodes_track_status ON knowledge_nodes(track_id, status);
 CREATE INDEX IF NOT EXISTS idx_nodes_next_review ON knowledge_nodes(next_review);
+CREATE INDEX IF NOT EXISTS idx_nodes_quality ON knowledge_nodes(quality_score);
+CREATE INDEX IF NOT EXISTS idx_nodes_type ON knowledge_nodes(node_type);
 
 -- ============================================================
 -- 4. Review History (复习历史)
@@ -73,6 +113,7 @@ CREATE INDEX IF NOT EXISTS idx_reviews_date ON review_history(reviewed_at);
 
 -- ============================================================
 -- 5. Assessment Log (评估记录)
+--    扩展：增加知识质量评估记录
 -- ============================================================
 CREATE TABLE IF NOT EXISTS assessment_log (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,6 +125,10 @@ CREATE TABLE IF NOT EXISTS assessment_log (
     methods         TEXT    NOT NULL DEFAULT '[]' CHECK (json_valid(methods)),
     duration_minutes INTEGER DEFAULT 0,
     fake_signals    TEXT    NOT NULL DEFAULT '{}' CHECK (json_valid(fake_signals)),
+    -- 知识质量评估结果 (v3)
+    quality_before  INTEGER DEFAULT 0 CHECK (quality_before BETWEEN 0 AND 100),
+    quality_after   INTEGER DEFAULT 0 CHECK (quality_after BETWEEN 0 AND 100),
+    quality_notes   TEXT    NOT NULL DEFAULT '',
     notes           TEXT    NOT NULL DEFAULT '',
     created_at      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
 );
@@ -110,45 +155,108 @@ CREATE TABLE IF NOT EXISTS learning_journal (
 
 -- ============================================================
 -- 7. Node Dependencies (节点依赖)
+--    扩展：增加更多关系类型
 -- ============================================================
 CREATE TABLE IF NOT EXISTS node_dependencies (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     node_id       INTEGER NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
     depends_on_id INTEGER NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
-    relation_type TEXT    NOT NULL DEFAULT 'prerequisite' CHECK (relation_type IN ('prerequisite', 'related', 'reference')),
+    relation_type TEXT    NOT NULL DEFAULT 'prerequisite' CHECK (relation_type IN (
+                        'prerequisite',     -- 前置知识
+                        'related',          -- 相关概念
+                        'reference',        -- 引用/参考
+                        'is_a',             -- 父子关系（is-a）
+                        'part_of',          -- 组成关系（part-of）
+                        'contradicts',      -- 矛盾/冲突
+                        'supports',         -- 支持/佐证
+                        'applies_to'        -- 应用于
+                    )),
     UNIQUE(node_id, depends_on_id)
 );
 CREATE INDEX IF NOT EXISTS idx_deps_node ON node_dependencies(node_id);
 CREATE INDEX IF NOT EXISTS idx_deps_depends ON node_dependencies(depends_on_id);
 
 -- ============================================================
--- 8. FTS5 Full-Text Search (external content table)
+-- 8. Knowledge Quality Audit Log (知识质量审计日志) [v3 新增]
+--     记录每次知识质量评估的详细结果
 -- ============================================================
--- Note: The underlying columns (content, tags) are added by migration in database.py.
--- This FTS table is created after columns exist.
+CREATE TABLE IF NOT EXISTS quality_audit_log (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id         INTEGER NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
+    audit_type      TEXT    NOT NULL CHECK (audit_type IN (
+                        'initial',          -- 初始评估
+                        'review_update',    -- 复习时更新
+                        'source_verified',  -- 来源验证
+                        'freshness_check',  -- 时效性检查
+                        'cross_validation', -- 交叉验证
+                        'expert_review'     -- 专家评审
+                    )),
+    -- NUSAP 评分
+    theory_level    INTEGER NOT NULL CHECK (theory_level BETWEEN 0 AND 4),
+    data_level      INTEGER NOT NULL CHECK (data_level BETWEEN 0 AND 4),
+    method_level    INTEGER NOT NULL CHECK (method_level BETWEEN 0 AND 4),
+    source_reliability INTEGER NOT NULL CHECK (source_reliability BETWEEN 0 AND 4),
+    completeness    INTEGER NOT NULL CHECK (completeness BETWEEN 0 AND 4),
+    consistency     INTEGER NOT NULL CHECK (consistency BETWEEN 0 AND 4),
+    -- 综合质量分
+    quality_score   INTEGER NOT NULL CHECK (quality_score BETWEEN 0 AND 100),
+    -- 审计详情
+    findings        TEXT    NOT NULL DEFAULT '[]' CHECK (json_valid(findings)),  -- 发现的问题列表
+    recommendations TEXT    NOT NULL DEFAULT '[]' CHECK (json_valid(recommendations)),  -- 改进建议
+    notes           TEXT    NOT NULL DEFAULT '',
+    audited_by      TEXT    NOT NULL DEFAULT 'system',  -- 审计者（system/user/expert）
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_quality_audit_node ON quality_audit_log(node_id);
+CREATE INDEX IF NOT EXISTS idx_quality_audit_type ON quality_audit_log(audit_type);
+CREATE INDEX IF NOT EXISTS idx_quality_audit_date ON quality_audit_log(created_at);
 
--- FTS virtual table (created after migration ensures columns exist)
--- CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
---     name, content, tags, source_title,
---     content='knowledge_nodes',
---     content_rowid='id',
---     tokenize='unicode61'
--- );
---
--- Triggers to keep FTS in sync with knowledge_nodes:
--- CREATE TRIGGER IF NOT EXISTS knowledge_fts_insert AFTER INSERT ON knowledge_nodes BEGIN
---     INSERT INTO knowledge_fts(rowid, name, content, tags, source_title)
---     VALUES (new.id, new.name, new.content, new.tags, new.source_title);
--- END;
---
--- CREATE TRIGGER IF NOT EXISTS knowledge_fts_delete AFTER DELETE ON knowledge_nodes BEGIN
---     INSERT INTO knowledge_fts(knowledge_fts, rowid, name, content, tags, source_title)
---     VALUES ('delete', old.id, old.name, old.content, old.tags, old.source_title);
--- END;
---
--- CREATE TRIGGER IF NOT EXISTS knowledge_fts_update AFTER UPDATE ON knowledge_nodes BEGIN
---     INSERT INTO knowledge_fts(knowledge_fts, rowid, name, content, tags, source_title)
---     VALUES ('delete', old.id, old.name, old.content, old.tags, old.source_title);
---     INSERT INTO knowledge_fts(rowid, name, content, tags, source_title)
---     VALUES (new.id, new.name, new.content, new.tags, new.source_title);
--- END;
+-- ============================================================
+-- 9. Knowledge Sources (知识来源表) [v3 新增]
+--     统一管理知识来源的元数据
+-- ============================================================
+CREATE TABLE IF NOT EXISTS knowledge_sources (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    node_id         INTEGER NOT NULL REFERENCES knowledge_nodes(id) ON DELETE CASCADE,
+    source_type     TEXT    NOT NULL CHECK (source_type IN (
+                        'academic_paper',   -- 学术论文
+                        'textbook',         -- 教科书
+                        'official_doc',     -- 官方文档
+                        'industry_report',  -- 行业报告
+                        'news_media',       -- 新闻媒体
+                        'blog_forum',       -- 博客/论坛
+                        'expert_opinion',   -- 专家意见
+                        'personal_exp',     -- 个人经验
+                        'other'             -- 其他
+                    )),
+    title           TEXT    NOT NULL DEFAULT '',
+    url             TEXT    NOT NULL DEFAULT '',
+    author          TEXT    NOT NULL DEFAULT '',
+    publisher       TEXT    NOT NULL DEFAULT '',
+    publish_date    TEXT,   -- 发布日期
+    access_date     TEXT    NOT NULL DEFAULT (date('now')),  -- 访问日期
+    reliability     INTEGER NOT NULL DEFAULT 2 CHECK (reliability BETWEEN 0 AND 4),
+    citation_count  INTEGER DEFAULT 0,  -- 被引用次数
+    notes           TEXT    NOT NULL DEFAULT '',
+    UNIQUE(node_id, url)
+);
+CREATE INDEX IF NOT EXISTS idx_sources_node ON knowledge_sources(node_id);
+CREATE INDEX IF NOT EXISTS idx_sources_type ON knowledge_sources(source_type);
+
+-- ============================================================
+-- 10. Knowledge Coverage (知识覆盖度表) [v3 新增]
+--     追踪知识库的领域覆盖情况
+-- ============================================================
+CREATE TABLE IF NOT EXISTS knowledge_coverage (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id        INTEGER NOT NULL REFERENCES tracks(id) ON DELETE CASCADE,
+    domain          TEXT    NOT NULL,  -- 领域名称
+    expected_nodes  INTEGER DEFAULT 0,  -- 该领域预期节点数
+    actual_nodes    INTEGER DEFAULT 0,  -- 实际节点数
+    coverage_pct    REAL    DEFAULT 0.0 CHECK (coverage_pct BETWEEN 0 AND 100),  -- 覆盖百分比
+    depth_avg       REAL    DEFAULT 0.0 CHECK (depth_avg BETWEEN 1 AND 5),  -- 平均深度
+    last_assessed   TEXT,   -- 最近评估日期
+    notes           TEXT    NOT NULL DEFAULT '',
+    UNIQUE(track_id, domain)
+);
+CREATE INDEX IF NOT EXISTS idx_coverage_track ON knowledge_coverage(track_id);

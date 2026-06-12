@@ -1,6 +1,6 @@
 ---
 name: meta-learning
-description: "当用户明确需要学习计划、理解诊断、复习排期、考试备考或结构化学习教练时触发。涉及词：'检测我的理解'、'帮我学'、'复习'、'深度学习'、'学习计划'、'备考'、'考试'、'知识体系'、'结构化学习'。"
+description: "认知科学驱动的元学习引擎 + 知识质量评估系统。覆盖：学习计划/理解诊断/复习排期/考试备考/知识库质量审计。支持SM-2间隔重复、NUSAP Pedigree Matrix质量评估、SQLite持久化、多路线调度。触发词：'帮我学'、'复习'、'备考'、'知识体系'、'知识质量'、'评估知识'、'学习计划'、'检测理解'、'考试'、'结构化学习'、'知识审计'、'知识库体检'。"
 ---
 
 # 元学习 AI 教练
@@ -72,6 +72,8 @@ description: "当用户明确需要学习计划、理解诊断、复习排期、
 | 假懂检测 | `references/fake-detection.md` | 怀疑用户存在"假懂"时 |
 | 评估协议 | `references/assessment-protocols.md` | 需要进行正式评估 |
 | 学习指标 | `references/learning-indicators.md` | 需要量化评估学习效果 |
+| 知识质量评估 | `references/knowledge-quality.md` | 需要评估知识库质量或标注可信度 |
+| 本地知识检索 | `engine/knowledge/` (BM25 + jieba) | 快速检索认知科学方法库／教学策略，无需联网 |
 | 输出风格 | `references/output-style.md` | 需要格式化输出模板 |
 
 ## 方法快速选择
@@ -94,23 +96,69 @@ description: "当用户明确需要学习计划、理解诊断、复习排期、
 
 ```
 Agent（对话交互）→ CLI 调用 → engine/main.py → SQLite 持久层 + SM-2 算法 + 状态机 + 调度器 + 内容缓存
+                                        └→ engine/knowledge/ → BM25 本地知识检索（29 篇认知科学文档）
 ```
 
 - Agent 负责对话：提问、讲解、给反馈、**搜索学习内容并缓存**
 - 引擎负责数据：所有状态、算法、排期、**知识内容存储与检索**由程序管理
 
+### 本地知识检索
+
+`engine/knowledge/` 提供 BM25 + jieba 中文分词的本地全文检索，覆盖技能内全部认知科学文档（178 个片段，29 篇文档），无需联网。
+
+**CLI 命令**：
+```bash
+# 搜索知识库
+python -m engine.knowledge search "费曼技巧 教学步骤" --top-k 5
+# 限定分类搜索
+python -m engine.knowledge search "间隔复习" --top-k 3 --scope methods
+# 列出知识源
+python -m engine.knowledge sources
+# 重建索引
+python -m engine.knowledge rebuild
+```
+
+Agent 在教学流程中应优先使用本地检索：有匹配结果则直接基于本地内容讲解，无匹配时才走 WebSearch/WebFetch。
+
 ### 内容缓存
 
 `knowledge_nodes` 支持存储 Markdown 正文，Agent 在教学流程中可将搜索到的内容缓存到本地：
 
-1. 教学前 → `meta-learn node content <nid>` 检查是否有缓存内容
-2. 无缓存 → Agent 使用 WebSearch/WebFetch 搜索，整理后写入
+1. 教学前 → 先 `python -m engine.knowledge search "..."` 检索本地知识库，再 `meta-learn node content <nid>` 检查已有缓存
+2. 无缓存且本地无匹配 → Agent 使用 WebSearch/WebFetch 搜索，整理后写入
 3. 有缓存 → 直接基于缓存内容讲解，减少重复搜索
 4. 质量评估 → Agent 评估内容质量并更新 quality_score
 
+### 知识质量评估
+
+每个知识节点在创建和复习时自动进行质量评估，基于知识图谱质量评估框架（工程界）和 NUSAP Pedigree Matrix：
+
+**评估维度**：
+- 模式层质量：节点类型分类、关系类型规范化
+- 数据层质量：准确性、完整性、一致性、时效性、来源可信度
+- NUSAP Pedigree：理论支撑等级(0-4)、数据来源等级(0-4)、方法验证等级(0-4)
+- 应用层质量：检索召回率、领域覆盖度、知识深度
+
+**输出规范**：关键结论标注 (T,D,M) 三元组评分，如 (4,3,2) 表示理论4分、数据3分、方法2分。低于 (2,2,1) 的结论必须标注为推测并说明依据。
+
+详细评估框架见 `references/knowledge-quality.md`。
+
+**CLI 命令**：
+```bash
+# 评估单个节点
+meta-learn quality assess <node_id>
+# 评估整个路线
+meta-learn quality assess-track <track_id>
+# 评估所有知识库
+meta-learn quality assess-all <user_id>
+# 生成质量报告
+meta-learn quality report <user_id>
+```
+
 默认搜索路径（零配置）：
-- **WebSearch / WebFetch**（Claude 内置工具）
-- **multi-search-engine** skill（16 搜索引擎，无 API 要求）
+1. **本地知识库** — `python -m engine.knowledge search`（BM25 本地索引，178 片段，29 篇文档）
+2. **WebSearch / WebFetch**（Claude 内置工具）
+3. **multi-search-engine** skill（16 搜索引擎，无 API 要求）
 
 仅用户主动要求时使用外部 API（Tavily/Bing），需配置 API Key。
 

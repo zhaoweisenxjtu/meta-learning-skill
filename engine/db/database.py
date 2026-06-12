@@ -1,4 +1,7 @@
-"""Database connection and initialization."""
+"""Database connection and initialization.
+
+v3 升级：增加知识质量评估字段（NUSAP Pedigree Matrix + 知识图谱质量维度）
+"""
 
 import sqlite3
 import os
@@ -9,7 +12,7 @@ DB_DIR = Path.home() / ".meta-learning"
 DB_PATH = DB_DIR / "meta_learning.db"
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
-# Columns to add to knowledge_nodes if missing (v1 → v2 migration)
+# v1 → v2 migration: content columns
 _CONTENT_COLUMNS = [
     ("content", "TEXT NOT NULL DEFAULT ''"),
     ("content_format", "TEXT NOT NULL DEFAULT 'markdown'"),
@@ -19,6 +22,21 @@ _CONTENT_COLUMNS = [
     ("cached_at", "TEXT"),
     ("tags", "TEXT NOT NULL DEFAULT '[]'"),
 ]
+
+# v2 → v3 migration: knowledge quality columns (NUSAP + knowledge graph quality)
+_QUALITY_COLUMNS = [
+    ("node_type", "TEXT NOT NULL DEFAULT 'concept'"),
+    ("theory_level", "INTEGER DEFAULT 0"),
+    ("data_level", "INTEGER DEFAULT 0"),
+    ("method_level", "INTEGER DEFAULT 0"),
+    ("source_reliability", "INTEGER DEFAULT 0"),
+    ("freshness_date", "TEXT"),
+    ("completeness", "INTEGER DEFAULT 0"),
+    ("consistency", "INTEGER DEFAULT 0"),
+]
+
+# v3 new tables
+_V3_TABLES = ["quality_audit_log", "knowledge_sources", "knowledge_coverage"]
 
 
 def get_db_path() -> str:
@@ -47,28 +65,75 @@ def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
     return any(c["name"] == column for c in cols)
 
 
+def _table_exists(conn: sqlite3.Connection, table: str) -> bool:
+    """Check if a table exists."""
+    row = conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    return row is not None
+
+
 def _migrate_knowledge_nodes(conn: sqlite3.Connection):
-    """Add content-related columns to knowledge_nodes if missing."""
+    """Add content-related columns to knowledge_nodes if missing (v1→v2)."""
     existing = {c["name"] for c in conn.execute("PRAGMA table_info(knowledge_nodes)").fetchall()}
     for col_name, col_def in _CONTENT_COLUMNS:
         if col_name not in existing:
             conn.execute(f"ALTER TABLE knowledge_nodes ADD COLUMN {col_name} {col_def}")
 
 
+def _migrate_quality_columns(conn: sqlite3.Connection):
+    """Add knowledge quality columns to knowledge_nodes if missing (v2→v3)."""
+    existing = {c["name"] for c in conn.execute("PRAGMA table_info(knowledge_nodes)").fetchall()}
+    for col_name, col_def in _QUALITY_COLUMNS:
+        if col_name not in existing:
+            conn.execute(f"ALTER TABLE knowledge_nodes ADD COLUMN {col_name} {col_def}")
+
+
+def _migrate_assessment_log(conn: sqlite3.Connection):
+    """Add quality columns to assessment_log if missing (v2→v3)."""
+    existing = {c["name"] for c in conn.execute("PRAGMA table_info(assessment_log)").fetchall()}
+    for col_name, col_def in [
+        ("quality_before", "INTEGER DEFAULT 0"),
+        ("quality_after", "INTEGER DEFAULT 0"),
+        ("quality_notes", "TEXT NOT NULL DEFAULT ''"),
+    ]:
+        if col_name not in existing:
+            conn.execute(f"ALTER TABLE assessment_log ADD COLUMN {col_name} {col_def}")
+
+
+def _migrate_node_dependencies(conn: sqlite3.Connection):
+    """Update node_dependencies CHECK constraint if needed (v2→v3).
+    SQLite doesn't support ALTER CHECK, so we just add new tables via schema.
+    """
+    pass  # New tables handle extended relation types
+
+
+def _create_v3_tables(conn: sqlite3.Connection):
+    """Create v3 new tables if they don't exist."""
+    for table in _V3_TABLES:
+        if not _table_exists(conn, table):
+            # Read schema and extract CREATE TABLE for this specific table
+            schema_text = SCHEMA_PATH.read_text(encoding="utf-8")
+            # Find the CREATE TABLE statement for this table
+            import re
+            pattern = rf"(CREATE TABLE IF NOT EXISTS {re.escape(table)}[\s\S]*?;\n)"
+            match = re.search(pattern, schema_text)
+            if match:
+                conn.executescript(match.group(1))
+
+
 def _init_fts(conn: sqlite3.Connection):
     """Create FTS5 virtual table and triggers if they don't exist."""
-    # Check if FTS table already exists
     exists = conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_fts'"
     ).fetchone()
     if exists:
         return
 
-    # Verify content column exists before creating FTS
     if not _column_exists(conn, "knowledge_nodes", "content"):
-        return  # migration hasn't run yet
+        return
 
-    # Only create FTS if content column exists
     conn.executescript("""
         CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
             name, content, tags, source_title,
@@ -97,14 +162,19 @@ def _init_fts(conn: sqlite3.Connection):
 
 
 def init_db(force: bool = False):
-    """Initialize the database schema and run migrations."""
+    """Initialize the database schema and run all migrations."""
     ensure_db_dir()
     exists = DB_PATH.exists()
     if exists and not force:
-        # Run migrations on existing DB
         conn = get_connection()
         try:
+            # v1→v2: content columns
             _migrate_knowledge_nodes(conn)
+            # v2→v3: quality columns
+            _migrate_quality_columns(conn)
+            _migrate_assessment_log(conn)
+            _create_v3_tables(conn)
+            # FTS
             _init_fts(conn)
             conn.commit()
         finally:
@@ -117,8 +187,9 @@ def init_db(force: bool = False):
     try:
         conn.executescript(schema)
         conn.commit()
-        # Now add content columns + FTS (fresh DB still needs migration for columns)
         _migrate_knowledge_nodes(conn)
+        _migrate_quality_columns(conn)
+        _migrate_assessment_log(conn)
         _init_fts(conn)
         conn.commit()
     finally:

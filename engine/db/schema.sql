@@ -260,3 +260,106 @@ CREATE TABLE IF NOT EXISTS knowledge_coverage (
     UNIQUE(track_id, domain)
 );
 CREATE INDEX IF NOT EXISTS idx_coverage_track ON knowledge_coverage(track_id);
+
+-- ============================================================
+-- 11. Teaching Interactions (教学互动记录) [v4 新增]
+--      元数据存 SQLite，全文内容存文件系统（interactions/ 目录）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS teaching_interactions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id      TEXT    NOT NULL,
+    user_id         INTEGER NOT NULL,
+    track_id        INTEGER NOT NULL,
+    node_id         INTEGER NOT NULL,
+    interaction_type TEXT   NOT NULL CHECK (interaction_type IN (
+                        'prerequisite_check',   -- 前置知识检测
+                        'deep_teaching',        -- 深度教学
+                        'instant_test',         -- 即时检验
+                        'structural_test',      -- 结构检验
+                        'feynman_explain',      -- 费曼讲解
+                        'review_session'        -- 复习会话
+                    )),
+    method_used     TEXT,   -- 使用的方法：feynman / elaborative-interrogation / structural-test / dual-coding 等
+    level_before   INTEGER DEFAULT 1 CHECK (level_before BETWEEN 1 AND 5),
+    level_after    INTEGER DEFAULT 1 CHECK (level_after BETWEEN 1 AND 5),
+    quality_score  INTEGER DEFAULT 0 CHECK (quality_score BETWEEN 0 AND 5),
+    duration_seconds INTEGER DEFAULT 0,
+    file_path      TEXT    NOT NULL DEFAULT '',
+    created_at     TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_ti_user_node ON teaching_interactions(user_id, node_id);
+CREATE INDEX IF NOT EXISTS idx_ti_session ON teaching_interactions(session_id);
+CREATE INDEX IF NOT EXISTS idx_ti_type ON teaching_interactions(interaction_type);
+
+-- ============================================================
+-- 12. Misconceptions (迷思概念记录) [v4 新增]
+-- ============================================================
+CREATE TABLE IF NOT EXISTS misconceptions (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    node_id         INTEGER NOT NULL,
+    interaction_id  INTEGER REFERENCES teaching_interactions(id) ON DELETE SET NULL,
+    misconception   TEXT    NOT NULL,
+    correction      TEXT    NOT NULL DEFAULT '',
+    category        TEXT    CHECK (category IN (
+                        'overgeneralization',   -- 过度泛化
+                        'term_confusion',       -- 术语混淆
+                        'surface_analogy',      -- 表面类比
+                        'missing_boundary',     -- 边界缺失
+                        'order_reversal',       -- 顺序颠倒
+                        'other'                 -- 其他
+                    )),
+    is_resolved     INTEGER NOT NULL DEFAULT 0,
+    encounter_count INTEGER NOT NULL DEFAULT 1,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    resolved_at     TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_mc_user_node ON misconceptions(user_id, node_id);
+CREATE INDEX IF NOT EXISTS idx_mc_resolved ON misconceptions(user_id, is_resolved);
+
+-- ============================================================
+-- 13. Weakness Patterns (薄弱模式分析) [v4 新增]
+-- ============================================================
+CREATE TABLE IF NOT EXISTS weakness_patterns (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    pattern_type    TEXT    NOT NULL CHECK (pattern_type IN (
+                        'overgeneralization',
+                        'term_confusion',
+                        'boundary_blur',
+                        'method_confusion',
+                        'overconfidence'
+                    )),
+    description     TEXT    NOT NULL,
+    related_node_ids TEXT   NOT NULL DEFAULT '[]',
+    frequency       INTEGER NOT NULL DEFAULT 1,
+    severity        INTEGER NOT NULL DEFAULT 1 CHECK (severity BETWEEN 1 AND 5),
+    last_observed_at TEXT   NOT NULL DEFAULT (datetime('now', 'localtime')),
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime'))
+);
+CREATE INDEX IF NOT EXISTS idx_wp_user ON weakness_patterns(user_id);
+
+-- ============================================================
+-- 14. Knowledge Graph Edges (知识图谱边) [v4 新增]
+-- ============================================================
+CREATE TABLE IF NOT EXISTS knowledge_graph_edges (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id         INTEGER NOT NULL,
+    source_node_id  INTEGER NOT NULL,
+    target_node_id  INTEGER NOT NULL,
+    relation_type   TEXT    NOT NULL CHECK (relation_type IN (
+                        'drives',           -- 驱动
+                        'conflicts_with',   -- 冲突
+                        'resolves',         -- 解决
+                        'extends',          -- 扩展
+                        'is_prerequisite',  -- 前置
+                        'is_example_of'     -- 示例
+                    )),
+    description     TEXT    NOT NULL DEFAULT '',
+    confidence      INTEGER NOT NULL DEFAULT 1 CHECK (confidence BETWEEN 1 AND 3),
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now', 'localtime')),
+    UNIQUE(user_id, source_node_id, target_node_id, relation_type)
+);
+CREATE INDEX IF NOT EXISTS idx_kge_user ON knowledge_graph_edges(user_id);
+CREATE INDEX IF NOT EXISTS idx_kge_source ON knowledge_graph_edges(source_node_id);
+CREATE INDEX IF NOT EXISTS idx_kge_target ON knowledge_graph_edges(target_node_id);

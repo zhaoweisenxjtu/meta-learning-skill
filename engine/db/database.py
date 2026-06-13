@@ -37,6 +37,7 @@ _QUALITY_COLUMNS = [
 
 # v3 new tables
 _V3_TABLES = ["quality_audit_log", "knowledge_sources", "knowledge_coverage"]
+_V4_TABLES = ["teaching_interactions", "misconceptions", "weakness_patterns", "knowledge_graph_edges"]
 
 
 def get_db_path() -> str:
@@ -123,6 +124,18 @@ def _create_v3_tables(conn: sqlite3.Connection):
                 conn.executescript(match.group(1))
 
 
+def _create_v4_tables(conn: sqlite3.Connection):
+    """Create v4 new tables if they don't exist."""
+    for table in _V4_TABLES:
+        if not _table_exists(conn, table):
+            schema_text = SCHEMA_PATH.read_text(encoding="utf-8")
+            import re
+            pattern = rf"(CREATE TABLE IF NOT EXISTS {re.escape(table)}[\s\S]*?;\n)"
+            match = re.search(pattern, schema_text)
+            if match:
+                conn.executescript(match.group(1))
+
+
 def _init_fts(conn: sqlite3.Connection):
     """Create FTS5 virtual table and triggers if they don't exist."""
     exists = conn.execute(
@@ -174,6 +187,7 @@ def init_db(force: bool = False):
             _migrate_quality_columns(conn)
             _migrate_assessment_log(conn)
             _create_v3_tables(conn)
+            _create_v4_tables(conn)
             # FTS
             _init_fts(conn)
             conn.commit()

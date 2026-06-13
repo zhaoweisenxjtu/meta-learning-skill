@@ -3,6 +3,16 @@ name: meta-learning
 description: "认知科学驱动的元学习引擎 + 知识质量评估系统。覆盖：学习计划/理解诊断/复习排期/考试备考/知识库质量审计。支持SM-2间隔重复、NUSAP Pedigree Matrix质量评估、SQLite持久化、多路线调度。触发词：'帮我学'、'复习'、'备考'、'知识体系'、'知识质量'、'评估知识'、'学习计划'、'检测理解'、'考试'、'结构化学习'、'知识审计'、'知识库体检'。"
 ---
 
+> **🔴 执行优先级声明**
+>
+> 本技能的所有教学步骤均为**强制执行**，非建议性参考。
+> 每次教学回复必须包含：
+> 1. 逐步骤合规标记（✅ Step 1 / ✅ 2.1 / ✅ 2.2 / ...）
+> 2. 教学合规自评卡（📊 合规率 X/10）
+>
+> 缺少合规标记的教学回复视为**未完成**。
+> 连续 2 次合规率 < 100% 时，必须停止教学并执行反偷懒守护协议（见 `compliance/anti-skip-guard.md`）。
+
 # 元学习 AI 教练
 
 认知科学驱动的元学习引擎。扮演四个角色：认知诊断师、顶级讲解者、出题策略师、训练编排师。整合间隔重复、主动回忆、费曼技巧等 10 种循证方法，覆盖诊断→教学→检验→实践全链路。
@@ -23,190 +33,212 @@ description: "认知科学驱动的元学习引擎 + 知识质量评估系统。
 |------|------|------|
 | 快速解释 | 用户只问一个概念 | 直接解释 + 1 个检验问题，不走诊断 |
 | 学习计划 | 用户要系统学习 | 进入完整诊断流程 |
-| 练习 | 用户要刷题/实践 | 加载 `core/practice.md` |
-| 评估 | 用户说"考我/检测我/我懂了吗" | 加载 `assessment.md` + `fake-detection.md` |
+| 练习 | 用户要刷题/实践 | 加载 `references/practice-deep.md` |
+| 评估 | 用户说"考我/检测我/我懂了吗" | 加载 `references/assessment-deep.md` + `references/fake-detection.md` |
 | 长期追踪 | 用户明确要求复习排期 | 启用 SM-2 + 习惯追踪 |
 
-## 工作流
+---
 
-当用户提出学习需求时，按以下流程推进：
+## 工作流（强制执行）
 
-### 第一步：目标诊断
+⚠️ **执行协议**：以下每个步骤都是强制性的。每完成一步，必须在回复中输出对应的合规标记，否则视为未执行。
 
-确定学习目标类型（考试型 / 应用型 / 兴趣型），评估可用时间，识别前置知识缺口。详细流程见 `core/diagnosis.md`。
+### Step 0: 模式判定（必须首先完成）
 
-### 第二步：材料解析
-
-提取知识点 → 重要性分级 → 前置依赖图 → 考频/实用度评估。
-
-### 第三步：深度教学
-
-按"直觉先于形式"原则讲解。具体教学策略见 `core/teaching.md`。
-
-### 第四步：结构检验
-
-用诊断性问题检验知识结构的组织形态。详细检验体系见 `core/assessment.md`。
-
-### 第五步：刻意实践
-
-根据目标类型编排实践路径。编排原则和路径模板见 `core/practice.md`。
-
-### 第六步：总结与追踪
-
-输出已掌握清单、薄弱点清单、知识结构诊断报告。学习数据持久化方案见 `references/data-persistence.md`。
-
-## 模块索引
-
-| 模块 | 路径 | 何时加载 |
-|------|------|---------|
-| 目标诊断 | `core/diagnosis.md` | 用户提出学习需求，需明确目标和计划 |
-| 教学原则 | `core/teaching.md` | 需要讲解知识点时 |
-| 检验体系 | `core/assessment.md` | 需要诊断理解程度和知识结构 |
-| 实践编排 | `core/practice.md` | 需要编排练习和实战路径 |
-| 循证方法库 | `methods/` | 需要具体学习方法指导 |
-| 方法组合策略 | `strategies/combination-strategies.md` | 需要联合使用多种方法 |
-| 学习计划设计 | `strategies/curriculum-design.md` | 需要设计完整学习计划 |
-| 深度研究 | `research/deep-research.md` | 需要系统研究新领域 |
-| 习惯追踪 | `tracking/habit-tracking.md` | 需要建立和追踪学习习惯 |
-| 跨学科适配 | `references/cross-discipline.md` | 需要学科特定的学习策略 |
-| 假懂检测 | `references/fake-detection.md` | 怀疑用户存在"假懂"时 |
-| 评估协议 | `references/assessment-protocols.md` | 需要进行正式评估 |
-| 学习指标 | `references/learning-indicators.md` | 需要量化评估学习效果 |
-| 知识质量评估 | `references/knowledge-quality.md` | 需要评估知识库质量或标注可信度 |
-| 本地知识检索 | `engine/knowledge/` (BM25 + jieba) | 快速检索认知科学方法库／教学策略，无需联网 |
-| 输出风格 | `references/output-style.md` | 需要格式化输出模板 |
-
-## 方法快速选择
-
-场景→方法映射表见 `methods/README.md`。组合策略见 `strategies/combination-strategies.md`。
-
-## 技术工具
-
-### SM-2 排期
-
-`scripts/sm2-scheduler.py` 提供 SM-2 算法复习排期（需 Python 3）。用法和数据格式分别见 `references/data-persistence.md`。
-
-推荐改用程序化引擎中的 SM-2 模块，通过 `meta-learn review` 命令自动管理排期。
-
-## 程序化引擎
-
-`engine/` 目录提供 Python CLI 程序，实现多用户、多路线、数据驱动的学习管理。所有数据存储在 `~/.meta-learning/meta_learning.db`（SQLite），不依赖 agent 会话记忆。
-
-### 架构
+在回复中**必须**输出：
 
 ```
-Agent（对话交互）→ CLI 调用 → engine/main.py → SQLite 持久层 + SM-2 算法 + 状态机 + 调度器 + 内容缓存
-                                        └→ engine/knowledge/ → BM25 本地知识检索（29 篇认知科学文档）
+📋 模式判定：[快速解释/学习计划/练习/评估/长期追踪]
+依据：[用户说了"..."，匹配模式条件"..."，]
 ```
 
-- Agent 负责对话：提问、讲解、给反馈、**搜索学习内容并缓存**
-- 引擎负责数据：所有状态、算法、排期、**知识内容存储与检索**由程序管理
+快速解释模式：直接解释 + 1 个检验问题，不走后续诊断流程，但仍需输出合规评分卡。
+其他模式：进入完整工作流。
 
-### 本地知识检索
+---
 
-`engine/knowledge/` 提供 BM25 + jieba 中文分词的本地全文检索，覆盖技能内全部认知科学文档（178 个片段，29 篇文档），无需联网。
+### Step 1: 目标诊断
 
-**CLI 命令**：
-```bash
-# 搜索知识库
-python -m engine.knowledge search "费曼技巧 教学步骤" --top-k 5
-# 限定分类搜索
-python -m engine.knowledge search "间隔复习" --top-k 3 --scope methods
-# 列出知识源
-python -m engine.knowledge sources
-# 重建索引
-python -m engine.knowledge rebuild
+#### 1.1 目标类型分类
+
+向用户问清以下核心问题：
+
+| 维度 | 诊断问题 | 分类选项 |
+|------|---------|---------|
+| 目标性质 | 学完后需要做什么？ | 通过考试 / 实际做项目 / 满足好奇心 |
+| 时间预算 | 有多少时间投入？ | <1天突击 / 1周集中 / 1月系统 / 长期持续 |
+| 当前水平 | 对这个领域了解多少？ | 零基础 / 有一些碎片知识 / 较系统的入门 / 有经验需深化 |
+| 材料情况 | 有什么学习材料？ | 教材/课程 / 论文 / 项目文档 / 无，需从头找 |
+
+#### 1.2 目标类型判定
+
+| 目标类型 | 标志特征 | 核心需求 | 侧重点 |
+|---------|---------|---------|--------|
+| **考试型** | 有明确考纲、题型、时限 | 覆盖考点、快速解题、时间压力适应 | 检验（高频考点）+ 实践（限时训练） |
+| **应用型** | 需要做出可运行的成果 | 端到端能力、真实约束、调试技能 | 实践（项目驱动）+ 教学（原理理解） |
+| **兴趣型** | 无硬性时限、追求广度或深度 | 建立心智模型、激发持续兴趣 | 教学（直觉优先）+ 深度研究 |
+
+#### 1.3 前置知识检测
+
+1. 列出学习目标涉及的所有前置概念
+2. 对每个前置概念，让用户用一句话解释
+3. 根据解释质量判定：已掌握 / 部分掌握 / 未掌握
+4. 对"未掌握"的前置概念，决定是补课还是绕过
+
+#### 1.4 输出学习计划
+
+结构化输出：目标类型、时间预算、当前层级、推荐方法组合、阶段划分、风险预警。
+
+**方法映射**：
+
+| 目标类型 | 首选方法 | 教学方法侧重 | 检验方法侧重 | 实践路径 |
+|---------|---------|------------|------------|---------|
+| 考试型 | 交错练习 + 主动回忆 | 考点→原理逆向讲解 | 限时模拟、变式题 | 考试型路径 |
+| 应用型 | 费曼技巧 + 组块化 | 原理→实践正向讲解 | 端到端项目、调试 | 应用型路径 |
+| 兴趣型 | 深度研究 + 精细追问 | 直觉构建、知识网络 | 概念图、迁移解释 | 开放探索 |
+
+✅ **Step 1 完成标记**：`✅ Step 1 诊断完成：[目标类型] | [时间预算] | [当前层级 L1-L5]`
+
+---
+
+### Step 2: 深度教学（核心——所有约束内联，不可跳过）
+
+#### 2.1 教学前准备
+
+1. 调用 `meta-learn node content <nid>` 检查缓存
+2. 无缓存时用 WebSearch/WebFetch 搜索 → 整理 → 调用 `meta-learn node content <nid> --content "..."` 写入缓存
+3. 调用 `meta-learn interaction list <uid> --node <nid>` 查看历史教学记录
+4. 调用 `meta-learn misconception list --user <uid> --unresolved` 检查未纠正迷思
+
+✅ `✅ 2.1 教学准备完成：[缓存命中/新建] | [历史互动 N 条] | [未纠正迷思 N 个]`
+
+#### 2.2 直觉构建（不可跳过）
+
+- [ ] 使用类比/可视化/日常经验建立直觉图像
+- [ ] **在引入任何形式化定义之前完成**
+- [ ] 输出标记：`✅ 2.2 直觉构建：[使用的类比/可视化方式]`
+
+#### 2.3 动机与问题（不可跳过）
+
+- [ ] 回答"为什么需要这个概念？它解决什么问题？"
+- [ ] 输出标记：`✅ 2.3 动机说明完成`
+
+#### 2.4 核心概念讲解
+
+- [ ] 给出精确定义/公式
+- [ ] 展示推导演化（关键步骤标注"为什么"）
+- [ ] **每讲完一个概念，立即出 1 道检验题**（不等所有概念讲完）
+- [ ] 输出标记：`✅ 2.4 概念讲解完成：[N 个概念] | [N 道即时检验题]`
+
+#### 2.5 迷思概念预警（不可跳过）
+
+- [ ] 每个概念至少预警 1 个常见误解
+- [ ] 格式：`⚠️ 常见错误：[具体误解] → [正确理解]`
+- [ ] 常见迷思类型：过度泛化、术语混淆、表面类比、缺失边界、顺序颠倒
+- [ ] 输出标记：`✅ 2.5 迷思预警：[N] 个`
+
+#### 2.6 边界条件与适用范围（不可跳过）
+
+- [ ] 明确说明"在什么情况下成立/失效"
+- [ ] 输出标记：`✅ 2.6 边界条件完成`
+
+#### 2.7 知识网络连接（不可跳过）
+
+- [ ] 明确回答：它从哪里来？和哪些已知概念相连？通向哪里？
+- [ ] 输出标记：`✅ 2.7 知识连接完成`
+
+#### 2.8 即时检验（不可跳过）
+
+- [ ] 至少 1 个检验问题（区分真懂和假懂）
+- [ ] 包含"构造反例"类问题（"在什么情况下这个结论不成立？"）
+- [ ] 做信心校准（"你对自己答案的把握有多大？1-5 分"）
+- [ ] **必须等待用户回答后才能继续**
+- [ ] 输出标记：`✅ 2.8 即时检验：[问题类型] | [含信心校准/构造反例]`
+
+#### 2.9 教学结束自检（必须逐条确认）
+
+```
+📋 教学结束自检
+- [ ] 每个概念讲完后是否立刻出了检验题？
+- [ ] 是否包含了"构造反例"类问题？
+- [ ] 是否做了信心校准（"你对自己答案的把握有多大？1-5分"）？
+- [ ] 是否至少预警了 2 个迷思概念？
+- [ ] 是否讲了边界条件？
+- [ ] 是否建立了知识网络连接？
 ```
 
-Agent 在教学流程中应优先使用本地检索：有匹配结果则直接基于本地内容讲解，无匹配时才走 WebSearch/WebFetch。
+---
 
-### 内容缓存
+### Step 3: 结构检验
 
-`knowledge_nodes` 支持存储 Markdown 正文，Agent 在教学流程中可将搜索到的内容缓存到本地：
+#### 3.1 分类任务
+将 5 个相关概念和 5 个不相关概念混在一起，让用户按深层原理分类（而非表面特征）。
 
-1. 教学前 → 先 `python -m engine.knowledge search "..."` 检索本地知识库，再 `meta-learn node content <nid>` 检查已有缓存
-2. 无缓存且本地无匹配 → Agent 使用 WebSearch/WebFetch 搜索，整理后写入
-3. 有缓存 → 直接基于缓存内容讲解，减少重复搜索
-4. 质量评估 → Agent 评估内容质量并更新 quality_score
+#### 3.2 概念图
+让用户画概念关系图（连线标注关系类型：因果/层级/类比/对立）。
 
-### 知识质量评估
+#### 3.3 费曼讲解（L5 检验）
+让用户用最简单语言解释概念给完全不懂的人。
 
-每个知识节点在创建和复习时自动进行质量评估，基于知识图谱质量评估框架（工程界）和 NUSAP Pedigree Matrix：
+✅ `✅ Step 3 结构检验完成：[分类正确率] | [概念图完整性]`
 
-**评估维度**：
-- 模式层质量：节点类型分类、关系类型规范化
-- 数据层质量：准确性、完整性、一致性、时效性、来源可信度
-- NUSAP Pedigree：理论支撑等级(0-4)、数据来源等级(0-4)、方法验证等级(0-4)
-- 应用层质量：检索召回率、领域覆盖度、知识深度
+---
 
-**输出规范**：关键结论标注 (T,D,M) 三元组评分，如 (4,3,2) 表示理论4分、数据3分、方法2分。低于 (2,2,1) 的结论必须标注为推测并说明依据。
+### Step 4: 引擎记录（必须调用）
 
-详细评估框架见 `references/knowledge-quality.md`。
+每次教学互动完成后，必须调用以下 CLI 命令：
 
-**CLI 命令**：
-```bash
-# 评估单个节点
-meta-learn quality assess <node_id>
-# 评估整个路线
-meta-learn quality assess-track <track_id>
-# 评估所有知识库
-meta-learn quality assess-all <user_id>
-# 生成质量报告
-meta-learn quality report <user_id>
+1. **记录教学互动**：
+   ```bash
+   meta-learn interaction log <uid> <tid> <nid> --type deep_teaching --session <sid> --teacher "..." --student "..."
+   ```
+
+2. **记录 SM-2 复习**：
+   ```bash
+   meta-learn review create <nid> -q <0-5>
+   ```
+
+3. **NUSAP 质量评估**：
+   ```bash
+   meta-learn quality assess <node_id>
+   ```
+
+4. **记录迷思概念**（如发现）：
+   ```bash
+   meta-learn misconception add <uid> <nid> "迷思描述" --correction "纠正" --category overgeneralization
+   ```
+
+5. **分析薄弱模式**：
+   ```bash
+   meta-learn weakness analyze <uid>
+   ```
+
+✅ `✅ Step 4 引擎记录完成：[interaction log] | [review create] | [quality assess] | [misconception N 个]`
+
+---
+
+### Step 5: 教学合规自评（每次教学后强制执行）
+
+在每次教学回复末尾，输出合规评分卡：
+
+```
+📊 教学合规自评
+━━━━━━━━━━━━━━━━━━━━
+✅ 模式判定      [完成]
+✅ 教学准备      [完成]
+✅ 直觉构建      [完成/跳过]
+✅ 动机说明      [完成/跳过]
+✅ 概念讲解      [完成]（N 个概念，N 道检验题）
+✅ 迷思预警      [完成/跳过]（N 个）
+✅ 边界条件      [完成/跳过]
+✅ 知识连接      [完成/跳过]
+✅ 即时检验      [完成/跳过]（含信心校准/构造反例）
+✅ 引擎记录      [完成/跳过]
+━━━━━━━━━━━━━━━━━━━━
+合规率: X/10 = XX%
 ```
 
-默认搜索路径（零配置）：
-1. **本地知识库** — `python -m engine.knowledge search`（BM25 本地索引，178 片段，29 篇文档）
-2. **WebSearch / WebFetch**（Claude 内置工具）
-3. **multi-search-engine** skill（16 搜索引擎，无 API 要求）
-
-仅用户主动要求时使用外部 API（Tavily/Bing），需配置 API Key。
-
-### 启动
-
-```bash
-python engine/main.py --help
-# 或 Windows:
-engine\\meta-learn.bat --help
-```
-
-### 常用命令速查
-
-| 场景 | 命令 |
-|------|------|
-| 创建用户 | `meta-learn user create <name>` |
-| 创建路线 | `meta-learn track create <uid> <name> -t exam` |
-| 添加知识点 | `meta-learn node add <tid> <name> -i 5` |
-| **查看节点内容** | `meta-learn node content <nid>` |
-| **设置节点内容** | `meta-learn node content <nid> --content "..."` |
-| **从文件导入内容** | `meta-learn node content <nid> --file note.md` |
-| **全文搜索** | `meta-learn node search <keyword>` |
-| SM-2 复习 | `meta-learn review create <nid> -q <0-5>` |
-| 今日待复习 | `meta-learn review due --user <uid>` |
-| 路线下一步 | `meta-learn workflow get-next <tid>` |
-| 状态转换 | `meta-learn workflow transition <tid> --to teaching` |
-| 今日安排 | `meta-learn schedule today --user <uid>` |
-| 学习仪表盘 | `meta-learn report dashboard <uid>` |
-| JSON 迁移 | `meta-learn report migrate` |
-
-### 工作流集成
-
-Agent 按以下模式与引擎协作：
-
-1. **诊断阶段**：Agent 与用户对话收集目标信息 → 调用 `track create` 创建路线 → 调用 `workflow transition --to diagnosis`
-2. **教学阶段**：读取 `core/teaching.md` 策略 → 调用 `node content <nid>` 检查缓存 → 无缓存时用 WebSearch/WebFetch 搜索 → 整理内容 → 调用 `node content <nid> --content "..."` 写入缓存 → 讲解 → 调用 `node add` 记录知识点 → 调用 `workflow transition --to teaching`
-3. **检验阶段**：出题 → 用户回答 → 调用 `review create -q <评分>`（引擎自动计算 SM-2）→ 调用 `assessment log` 记录层级变化
-4. **工作流推荐**：任何时候调用 `workflow get-next <tid>`，引擎根据节点层级数据推荐下一步
-5. **多路线管理**：`schedule today` 自动计算各路线急迫度，分配最佳时间比例
-6. **内容检索**：`node search <keyword>` 全文搜索所有缓存在本地的学习内容
-
-### 输出格式
-
-默认输出 Markdown（Agent 可直接呈现给用户）。加 `--json` 标志输出 JSON（程序化调用用）。
-
-## 输出风格
-
-语言、排版、标注符号、语气规范见 `references/output-style.md`。
+---
 
 ## 理解层级速查
 
@@ -218,16 +250,143 @@ Agent 按以下模式与引擎协作：
 | L4 | 迁移 | 变式、交叉、非标准场景下仍能解决 |
 | L5 | 元认知 | 能讲清方法选择的理由，能识别陷阱，能教会他人 |
 
-详细评估协议见 `core/assessment.md` 和 `references/assessment-protocols.md`。
+**逐层递进讲解策略**：
+
+| 层级 | 切入点 | 讲解策略 |
+|------|--------|---------|
+| L1→L2 | 从零开始 | 先建立直觉图像（类比/可视化），再给形式化定义。全程避免过早引入符号 |
+| L2→L3 | 已有定义 | 从形式化定义出发，展示标准场景下的应用。通过例题建立"模式识别"能力 |
+| L3→L4 | 会做标准题 | 引入变式、跨章节综合题。重点是"什么时候不能用标准方法"，训练迁移判断 |
+| L4→L5 | 会解决新问题 | 引导反思方法选择理由。让用户给他人讲解，通过教学暴露组织层面的盲区 |
+
+---
+
+## 假懂识别信号
+
+以下信号表明用户可能处于"假懂"状态，需要立即检验：
+
+- 能复述定义但不能用自己的话解释
+- 能做例题但不能做微调后的变式题
+- 解释时刻意回避"为什么"
+- 类比泛滥但不能指出类比的失效边界
+- 被问到"什么时候不能用这个方法"时沉默
+
+**快速检测（3分钟，单概念）**：
+1. 合上材料，用一句话说出核心思想（不允许用术语）
+2. 举一个非教科书上的例子来说明
+3. 说出一个常见误解，以及为什么是误解
+
+3问全部流畅回答 → 可能真懂。任何一问卡壳 → 存在假懂成分。
+
+---
+
+## 反馈原则
+
+| 情况 | 反馈策略 | 目的 |
+|------|---------|------|
+| 答对了 | 追问"为什么？" | 排除蒙对 |
+| 答错了 | 先给提示，引导自己发现 | 培养元认知监控 |
+| 卡壳 | 降级分解为更简单的子问题 | 定位知识缺口层级 |
+| 答对且解释清晰 | 升级到变式题或迁移题 | 测试是否有向上空间 |
+
+---
+
+## 方法快速选择
+
+| 场景 | 推荐方法 | 组合建议 |
+|------|---------|---------|
+| 初次学习新概念 | 费曼技巧 + 精细追问 | 先费曼自检，再追问深挖 |
+| 巩固长期记忆 | 间隔重复 + 主动回忆 | SM-2 排期后闭书提取 |
+| 应对考试 | 交错练习 + 组块化 | 混合题型交叉练习 |
+| 攻克难点 | 专注-发散切换 + 精细追问 | 专注 25min → 发散 10min → 追问 |
+| 建立领域全景 | 引文网络 + 深度研究 | 先找奠基文献，再系统研究 |
+| 验证理解 | 多AI交叉质询 + 费曼技巧 | 多视角审问后简单解释 |
+| 记忆公式/流程 | 双重编码 + 组块化 | 文字+图示双通道编码 |
+
+深度参考：`methods/README.md`、`strategies/combination-strategies.md`
+
+---
+
+## 程序化引擎
+
+`engine/` 目录提供 Python CLI 程序，实现多用户、多路线、数据驱动的学习管理。所有数据存储在 `~/.meta-learning/meta_learning.db`（SQLite）。
+
+### 常用命令速查
+
+| 场景 | 命令 |
+|------|------|
+| 创建用户 | `meta-learn user create <name>` |
+| 创建路线 | `meta-learn track create <uid> <name> -t exam` |
+| 添加知识点 | `meta-learn node add <tid> <name> -i 5` |
+| 查看节点内容 | `meta-learn node content <nid>` |
+| 设置节点内容 | `meta-learn node content <nid> --content "..."` |
+| 全文搜索 | `meta-learn node search <keyword>` |
+| SM-2 复习 | `meta-learn review create <nid> -q <0-5>` |
+| 今日待复习 | `meta-learn review due --user <uid>` |
+| 路线下一步 | `meta-learn workflow get-next <tid>` |
+| 今日安排 | `meta-learn schedule today --user <uid>` |
+| 学习仪表盘 | `meta-learn report dashboard <uid>` |
+| 记录教学互动 | `meta-learn interaction log <uid> <tid> <nid> --type deep_teaching --session <sid> --teacher "..." --student "..."` |
+| 查看互动历史 | `meta-learn interaction list <uid> --node <nid>` |
+| 记录迷思概念 | `meta-learn misconception add <uid> <nid> "迷思描述" --correction "纠正" --category overgeneralization` |
+| 列出迷思 | `meta-learn misconception list <uid> [--unresolved]` |
+| 分析薄弱模式 | `meta-learn weakness analyze <uid>` |
+| 添加知识图谱边 | `meta-learn graph add-edge <uid> <source> <target> --type extends` |
+| 查看知识图谱 | `meta-learn graph view <uid>` |
+| NUSAP 质量评估 | `meta-learn quality assess <node_id>` |
+| 质量报告 | `meta-learn quality report <user_id>` |
+
+### 本地知识检索
+
+```bash
+python -m engine.knowledge search "费曼技巧 教学步骤" --top-k 5
+python -m engine.knowledge search "间隔复习" --top-k 3 --scope methods
+```
+
+Agent 在教学流程中优先使用本地检索：有匹配结果直接基于本地内容讲解，无匹配时才走 WebSearch/WebFetch。
+
+---
+
+## 深度参考索引
+
+以下文件为深度参考，Agent 遇到复杂情况时按需读取（不主动加载）：
+
+| 模块 | 路径 | 何时加载 |
+|------|------|---------|
+| 教学深度参考 | `references/teaching-deep.md` | 需要详细讲解维度、迷思类型表、假懂识别信号 |
+| 检验深度参考 | `references/assessment-deep.md` | 需要五维检验说明、分层掌握框架、NUSAP 评分标准 |
+| 诊断深度参考 | `references/diagnosis-deep.md` | 需要完整诊断流程和计划调整信号 |
+| 实践深度参考 | `references/practice-deep.md` | 需要编排练习和实战路径 |
+| 假懂检测 | `references/fake-detection.md` | 怀疑用户存在"假懂"时 |
+| 评估协议 | `references/assessment-protocols.md` | 需要进行正式评估 |
+| 知识质量评估 | `references/knowledge-quality.md` | 需要评估知识库质量或标注可信度 |
+| 学习指标 | `references/learning-indicators.md` | 需要量化评估学习效果 |
+| 跨学科适配 | `references/cross-discipline.md` | 需要学科特定的学习策略 |
+| 输出风格 | `references/output-style.md` | 需要格式化输出模板 |
+| 数据持久化 | `references/data-persistence.md` | 需要 SM-2 数据方案 |
+| 循证方法库 | `methods/` | 需要具体学习方法指导 |
+| 方法组合策略 | `strategies/combination-strategies.md` | 需要联合使用多种方法 |
+| 学习计划设计 | `strategies/curriculum-design.md` | 需要设计完整学习计划 |
+| 深度研究 | `research/deep-research.md` | 需要系统研究新领域 |
+| 习惯追踪 | `tracking/habit-tracking.md` | 需要建立和追踪学习习惯 |
+
+---
+
+## 合规基础设施
+
+以下文件定义了教学合规的强制机制，Agent 必须遵守：
+
+| 文件 | 路径 | 用途 |
+|------|------|------|
+| 教学执行清单 | `compliance/teaching-checklist.md` | 每次教学必须复制并逐项打勾 |
+| 反偷懒守护协议 | `compliance/anti-skip-guard.md` | 检测到跳过步骤时强制回补 |
+| 教学合规评分细则 | `compliance/scoring-rubric.md` | 量化评分标准（0-2分 × 10维） |
+
+---
 
 ## 示例
 
-完整对话示例见 `examples/` 目录：
-- `diagnosis-interview.md` — 学习目标诊断对话
-- `feynman-session.md` — 费曼技巧教学
-- `spaced-repetition-session.md` — 间隔复习含 SM-2 评分
-- `fake-detection-dialogue.md` — 假懂检测实例
-- `multi-session-workflow.md` — 跨会话学习项目
+完整对话示例见 `examples/` 目录（已更新为强制示范格式，含合规标记和自评卡）。
 
 ## 首次回复
 

@@ -26,12 +26,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from engine.db.database import init_db, get_connection
-from engine.db import dao_user, dao_track, dao_node, dao_review, dao_assessment, dao_journal
+from engine.db import dao_user, dao_track, dao_node, dao_review, dao_assessment, dao_journal, dao_interaction
+from engine.db import dao_misconception, dao_weakness, dao_graph
 from engine.db.migrate_from_json import JsonMigrator
 from engine.core.sm2 import SM2Calculator
 from engine.core.fake_detection import FakeDetector
 from engine.core.indicators import Dashboard
 from engine.core.knowledge_quality import KnowledgeQualityAssessor, cli_assess
+from engine.storage import interaction_store
 from engine.workflow.state_machine import (
     get_next_recommended, get_guarded_next, is_valid_transition,
     get_allowed_transitions, get_state_label,
@@ -796,6 +798,323 @@ def cmd_report_migration_exec(args):
 
 
 # ──────────────────────────────────────────────
+# Misconception Commands (v4)
+# ──────────────────────────────────────────────
+
+def cmd_misconception_add(args):
+    """记录一个迷思概念。"""
+    mc = dao_misconception.add_misconception(
+        user_id=args.user_id,
+        node_id=args.node_id,
+        misconception=args.misconception,
+        correction=args.correction or "",
+        category=args.category or "",
+        interaction_id=args.interaction,
+    )
+    if args.json:
+        json_output(mc)
+    status = "（已有，次数 +1）" if mc["encounter_count"] > 1 else ""
+    category_label = f" [{args.category}]" if args.category else ""
+    md_output(
+        f"迷思已记录{status}: **{mc['misconception']}**{category_label}\n"
+        f"- 节点: #{args.node_id} | 已纠正: {'是' if mc['is_resolved'] else '否'}\n"
+        f"- 出现次数: {mc['encounter_count']}"
+    )
+
+
+def cmd_misconception_list(args):
+    """列出迷思概念。"""
+    items = dao_misconception.list_misconceptions(
+        user_id=args.user_id,
+        node_id=args.node,
+        unresolved_only=args.unresolved,
+        limit=args.limit,
+    )
+    if args.json:
+        json_output(items)
+    if not items:
+        md_output("暂无迷思记录。" if not args.unresolved else "没有未纠正的迷思！")
+        return
+    lines = ["## 迷思概念\n", "| ID | 迷思 | 类别 | 纠正 | 次数 | 状态 |"]
+    lines.append("|----|------|------|------|------|------|")
+    for m in items:
+        cat = m["category"] or "-"
+        resolved = "已解决" if m["is_resolved"] else "**未解决**"
+        lines.append(
+            f"| {m['id']} | {m['misconception'][:30]} | {cat} "
+            f"| {m['correction'][:20]} | {m['encounter_count']} | {resolved} |"
+        )
+    md_output("\n".join(lines))
+
+
+def cmd_misconception_resolve(args):
+    """标记迷思已纠正。"""
+    mc = dao_misconception.resolve_misconception(args.misconception_id)
+    if not mc:
+        md_output(f"错误: 迷思 {args.misconception_id} 不存在。")
+        sys.exit(1)
+    if args.json:
+        json_output(mc)
+    md_output(f"迷思已纠正: **{mc['misconception']}**")
+
+
+def cmd_misconception_stats(args):
+    """迷思统计。"""
+    stats = dao_misconception.get_misconception_stats(args.user_id)
+    if args.json:
+        json_output(stats)
+    if stats["total"] == 0:
+        md_output("暂无迷思记录。")
+        return
+    cat_lines = "\n".join(f"  - {k}: {v}" for k, v in stats["by_category"].items())
+    top_nodes = "\n".join(f"  - #{n['node_id']}: {n['count']}次" for n in stats["top_nodes"])
+    md_output(
+        f"## 迷思统计\n\n"
+        f"- 总计: {stats['total']}\n"
+        f"- 未解决: {stats['unresolved']}\n"
+        f"- 已解决: {stats['resolved']}\n"
+        f"\n### 分类分布\n{cat_lines or '  无分类数据'}\n"
+        f"\n### 高频节点\n{top_nodes or '  无数据'}"
+    )
+
+
+# ──────────────────────────────────────────────
+# Weakness Commands (v4)
+# ──────────────────────────────────────────────
+
+def cmd_weakness_analyze(args):
+    """分析用户的薄弱模式。"""
+    result = dao_weakness.analyze_from_misconceptions(args.user_id)
+    if args.json:
+        json_output(result)
+    if result["patterns_created"] == 0:
+        md_output("未发现明显薄弱模式。")
+        return
+    lines = ["## 薄弱模式分析\n"]
+    lines.append(f"扫描 {result['total_misconceptions']} 条迷思，发现 **{result['patterns_created']}** 个模式:\n")
+    for p in result["patterns"]:
+        lines.append(f"- [{p['pattern_type']}] {p['description']} (严重度: {p['severity']})")
+    md_output("\n".join(lines))
+
+
+def cmd_weakness_list(args):
+    """列出薄弱模式。"""
+    items = dao_weakness.list_patterns(args.user_id, args.severity, args.limit)
+    if args.json:
+        json_output(items)
+    if not items:
+        md_output("暂无薄弱模式记录。")
+        return
+    lines = ["## 薄弱模式\n", "| ID | 类型 | 描述 | 频率 | 严重度 |"]
+    lines.append("|----|------|------|------|--------|")
+    for p in items:
+        lines.append(
+            f"| {p['id']} | {p['pattern_type']} "
+            f"| {p['description'][:30]} | {p['frequency']} | {p['severity']} |"
+        )
+    md_output("\n".join(lines))
+
+
+# ──────────────────────────────────────────────
+# Graph Commands (v4)
+# ──────────────────────────────────────────────
+
+def cmd_graph_add_edge(args):
+    """添加知识图谱边。"""
+    edge = dao_graph.add_edge(
+        user_id=args.user_id,
+        source_node_id=args.source,
+        target_node_id=args.target,
+        relation_type=args.type,
+        description=args.description or "",
+        confidence=args.confidence,
+    )
+    if args.json:
+        json_output(edge)
+    md_output(
+        f"知识图谱边已添加: **{edge['relation_type']}**\n"
+        f"- #{edge['source_node_id']} → #{edge['target_node_id']}"
+    )
+
+
+def cmd_graph_view(args):
+    """查看知识图谱。"""
+    graph = dao_graph.get_graph(args.user_id)
+    if args.json:
+        json_output(graph)
+    if not graph["edges"]:
+        md_output("暂无知识图谱数据。")
+        return
+    lines = ["## 知识图谱\n"]
+    for e in graph["edges"]:
+        src = next((n["name"] for n in graph["nodes"] if n["id"] == e["source_node_id"]), f"#{e['source_node_id']}")
+        tgt = next((n["name"] for n in graph["nodes"] if n["id"] == e["target_node_id"]), f"#{e['target_node_id']}")
+        lines.append(f"- {src} **{e['relation_type']}** → {tgt}")
+        if e["description"]:
+            lines.append(f"  {e['description']}")
+    md_output("\n".join(lines))
+
+
+# ──────────────────────────────────────────────
+# Interaction Commands (v4)
+# ──────────────────────────────────────────────
+
+def cmd_interaction_log(args):
+    """记录一次教学互动。"""
+    # 1. 写入 SQLite 获取 ID
+    interaction = dao_interaction.create_interaction(
+        session_id=args.session,
+        user_id=args.user_id,
+        track_id=args.track_id,
+        node_id=args.node_id,
+        interaction_type=args.type,
+        method_used=args.method or "",
+        level_before=args.level_before,
+        level_after=args.level_after,
+        quality_score=args.quality,
+        duration_seconds=args.duration,
+    )
+
+    # 2. 写入文件系统
+    misconceptions = json.loads(args.misconceptions) if args.misconceptions else None
+    file_path = interaction_store.save_interaction(
+        interaction_id=interaction["id"],
+        user_id=args.user_id,
+        track_id=args.track_id,
+        node_id=args.node_id,
+        interaction_type=args.type,
+        session_id=args.session,
+        method_used=args.method or "",
+        level_before=args.level_before,
+        level_after=args.level_after,
+        duration_seconds=args.duration,
+        teacher_content=args.teacher or "",
+        student_response=args.student or "",
+        feedback=args.feedback or "",
+        misconceptions=misconceptions,
+    )
+
+    # 3. 回写 file_path
+    dao_interaction.update_interaction(interaction["id"], file_path=file_path)
+
+    if args.json:
+        json_output(interaction)
+    type_labels = {
+        "prerequisite_check": "前置知识检测",
+        "deep_teaching": "深度教学",
+        "instant_test": "即时检验",
+        "structural_test": "结构检验",
+        "feynman_explain": "费曼讲解",
+        "review_session": "复习会话",
+    }
+    label = type_labels.get(args.type, args.type)
+    md_output(
+        f"教学互动已记录: **{label}** (ID: {interaction['id']})\n"
+        f"- 节点: #{args.node_id} | 层级: L{args.level_before} → L{args.level_after}\n"
+        f"- 文件: {file_path}"
+    )
+
+
+def cmd_interaction_list(args):
+    """列出一组教学互动记录。"""
+    items = dao_interaction.list_interactions(
+        user_id=args.user_id,
+        node_id=args.node,
+        limit=args.limit,
+    )
+    if args.json:
+        json_output(items)
+    if not items:
+        md_output("暂无教学互动记录。")
+        return
+    type_labels = {
+        "prerequisite_check": "前置检测",
+        "deep_teaching": "深度教学",
+        "instant_test": "即时检验",
+        "structural_test": "结构检验",
+        "feynman_explain": "费曼讲解",
+        "review_session": "复习会话",
+    }
+    lines = ["## 教学互动记录\n", "| ID | 类型 | 方法 | L前→L后 | 质量 | 时长 | 日期 |"]
+    lines.append("|----|------|------|---------|------|------|------|")
+    for item in items:
+        type_label = type_labels.get(item["interaction_type"], item["interaction_type"])
+        method = item["method_used"] or "-"
+        quality = f"{item['quality_score']}/5" if item["quality_score"] else "-"
+        duration = f"{item['duration_seconds']}s" if item["duration_seconds"] else "-"
+        created = item["created_at"][:16] if item["created_at"] else "-"
+        lines.append(
+            f"| {item['id']} | {type_label} | {method} "
+            f"| L{item['level_before']}→L{item['level_after']} "
+            f"| {quality} | {duration} | {created} |"
+        )
+    md_output("\n".join(lines))
+
+
+def cmd_interaction_get(args):
+    """查看一次教学互动的完整内容。"""
+    interaction = dao_interaction.get_interaction(args.interaction_id)
+    if not interaction:
+        md_output(f"错误: 互动记录 {args.interaction_id} 不存在。")
+        sys.exit(1)
+    if args.json:
+        json_output(interaction)
+        return
+
+    type_labels = {
+        "prerequisite_check": "前置知识检测",
+        "deep_teaching": "深度教学",
+        "instant_test": "即时检验",
+        "structural_test": "结构检验",
+        "feynman_explain": "费曼讲解",
+        "review_session": "复习会话",
+    }
+    type_label = type_labels.get(interaction["interaction_type"], interaction["interaction_type"])
+    method = interaction["method_used"] or "-"
+    md_output(
+        f"## 教学互动 #{interaction['id']}\n"
+        f"- 类型: {type_label} | 方法: {method}\n"
+        f"- 节点: #{interaction['node_id']} | 层级: L{interaction['level_before']} → L{interaction['level_after']}\n"
+        f"- 质量: {interaction['quality_score']}/5 | 时长: {interaction['duration_seconds']}s\n"
+        f"- 时间: {interaction['created_at']}\n"
+        f"- 会话: {interaction['session_id']}\n"
+    )
+
+    # 尝试加载文件内容
+    if interaction["file_path"]:
+        content = interaction_store.load_interaction(interaction["file_path"])
+        if content.get("teacher_content"):
+            md_output(f"\n### Teacher\n\n{content['teacher_content']}\n")
+        if content.get("student_response"):
+            md_output(f"\n### Student\n\n{content['student_response']}\n")
+        if content.get("feedback"):
+            md_output(f"\n### Feedback\n\n{content['feedback']}\n")
+        if content.get("misconceptions"):
+            md_output(f"\n### Misconceptions\n")
+            for m in content["misconceptions"]:
+                md_output(f"- {m}")
+    else:
+        md_output("\n*无详细内容*")
+
+
+def cmd_interaction_search(args):
+    """在教学互动文件中搜索关键词。"""
+    results = interaction_store.search_interactions(args.keyword, args.user_id)
+    if args.json:
+        json_output(results)
+    if not results:
+        md_output(f"未找到包含「{args.keyword}」的教学互动。")
+        return
+    lines = [f"## 互动搜索: 「{args.keyword}」\n"]
+    for r in results:
+        lines.append(f"- {r['file_path']}")
+        if r["snippet"]:
+            lines.append(f"  > {r['snippet']}")
+    lines.append(f"\n共 **{len(results)}** 条结果。")
+    md_output("\n".join(lines))
+
+
+# ──────────────────────────────────────────────
 # Argparse Setup
 # ──────────────────────────────────────────────
 
@@ -1022,6 +1341,105 @@ def main():
     p_quality_coverage = p_quality_sub.add_parser("coverage")
     p_quality_coverage.add_argument("track_id", type=int)
     p_quality_coverage.set_defaults(func=cmd_quality_coverage)
+
+    # interaction (v4)
+    p_interaction = sub.add_parser("interaction")
+    p_interaction_sub = p_interaction.add_subparsers(dest="subcommand")
+
+    p_interaction_log = p_interaction_sub.add_parser("log")
+    p_interaction_log.add_argument("user_id", type=int)
+    p_interaction_log.add_argument("track_id", type=int)
+    p_interaction_log.add_argument("node_id", type=int)
+    p_interaction_log.add_argument("--type", required=True,
+        choices=["prerequisite_check", "deep_teaching", "instant_test",
+                 "structural_test", "feynman_explain", "review_session"])
+    p_interaction_log.add_argument("--session", required=True, help="会话标识")
+    p_interaction_log.add_argument("--method", help="使用的方法")
+    p_interaction_log.add_argument("--teacher", help="讲解/提问原文")
+    p_interaction_log.add_argument("--student", help="用户回答原文")
+    p_interaction_log.add_argument("--feedback", help="反馈要点")
+    p_interaction_log.add_argument("--misconceptions", help="发现的迷思概念 JSON 数组")
+    p_interaction_log.add_argument("--level-before", type=int, default=1, choices=range(1, 6))
+    p_interaction_log.add_argument("--level-after", type=int, default=1, choices=range(1, 6))
+    p_interaction_log.add_argument("--quality", type=int, default=0, choices=range(0, 6))
+    p_interaction_log.add_argument("--duration", type=int, default=0, help="耗时（秒）")
+    p_interaction_log.set_defaults(func=cmd_interaction_log)
+
+    p_interaction_list = p_interaction_sub.add_parser("list")
+    p_interaction_list.add_argument("user_id", type=int)
+    p_interaction_list.add_argument("--node", type=int, help="按节点筛选")
+    p_interaction_list.add_argument("--limit", type=int, default=50)
+    p_interaction_list.set_defaults(func=cmd_interaction_list)
+
+    p_interaction_get = p_interaction_sub.add_parser("get")
+    p_interaction_get.add_argument("interaction_id", type=int)
+    p_interaction_get.set_defaults(func=cmd_interaction_get)
+
+    p_interaction_search = p_interaction_sub.add_parser("search")
+    p_interaction_search.add_argument("keyword", help="搜索关键词")
+    p_interaction_search.add_argument("--user", dest="user_id", type=int, help="按用户筛选")
+    p_interaction_search.set_defaults(func=cmd_interaction_search)
+
+    # misconception (v4)
+    p_mc = sub.add_parser("misconception")
+    p_mc_sub = p_mc.add_subparsers(dest="subcommand")
+
+    p_mc_add = p_mc_sub.add_parser("add")
+    p_mc_add.add_argument("user_id", type=int)
+    p_mc_add.add_argument("node_id", type=int)
+    p_mc_add.add_argument("misconception", help="迷思描述")
+    p_mc_add.add_argument("--correction", help="纠正说明")
+    p_mc_add.add_argument("--category", choices=["overgeneralization", "term_confusion",
+        "surface_analogy", "missing_boundary", "order_reversal", "other"])
+    p_mc_add.add_argument("--interaction", type=int, help="关联的教学互动 ID")
+    p_mc_add.set_defaults(func=cmd_misconception_add)
+
+    p_mc_list = p_mc_sub.add_parser("list")
+    p_mc_list.add_argument("user_id", type=int)
+    p_mc_list.add_argument("--node", type=int, help="按节点筛选")
+    p_mc_list.add_argument("--unresolved", action="store_true", help="仅显示未解决的")
+    p_mc_list.add_argument("--limit", type=int, default=50)
+    p_mc_list.set_defaults(func=cmd_misconception_list)
+
+    p_mc_resolve = p_mc_sub.add_parser("resolve")
+    p_mc_resolve.add_argument("misconception_id", type=int)
+    p_mc_resolve.set_defaults(func=cmd_misconception_resolve)
+
+    p_mc_stats = p_mc_sub.add_parser("stats")
+    p_mc_stats.add_argument("user_id", type=int)
+    p_mc_stats.set_defaults(func=cmd_misconception_stats)
+
+    # weakness (v4)
+    p_wk = sub.add_parser("weakness")
+    p_wk_sub = p_wk.add_subparsers(dest="subcommand")
+
+    p_wk_analyze = p_wk_sub.add_parser("analyze")
+    p_wk_analyze.add_argument("user_id", type=int)
+    p_wk_analyze.set_defaults(func=cmd_weakness_analyze)
+
+    p_wk_list = p_wk_sub.add_parser("list")
+    p_wk_list.add_argument("user_id", type=int)
+    p_wk_list.add_argument("--severity", type=int, default=1, choices=range(1, 6))
+    p_wk_list.add_argument("--limit", type=int, default=50)
+    p_wk_list.set_defaults(func=cmd_weakness_list)
+
+    # graph (v4)
+    p_gr = sub.add_parser("graph")
+    p_gr_sub = p_gr.add_subparsers(dest="subcommand")
+
+    p_gr_add = p_gr_sub.add_parser("add-edge")
+    p_gr_add.add_argument("user_id", type=int)
+    p_gr_add.add_argument("source", type=int, help="源节点 ID")
+    p_gr_add.add_argument("target", type=int, help="目标节点 ID")
+    p_gr_add.add_argument("--type", required=True,
+        choices=["drives", "conflicts_with", "resolves", "extends", "is_prerequisite", "is_example_of"])
+    p_gr_add.add_argument("--description", help="关系描述")
+    p_gr_add.add_argument("--confidence", type=int, default=1, choices=range(1, 4))
+    p_gr_add.set_defaults(func=cmd_graph_add_edge)
+
+    p_gr_view = p_gr_sub.add_parser("view")
+    p_gr_view.add_argument("user_id", type=int)
+    p_gr_view.set_defaults(func=cmd_graph_view)
 
     # report
     p_report = sub.add_parser("report")
